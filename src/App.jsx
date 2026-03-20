@@ -1202,9 +1202,12 @@ export default function App() {
   // ── Landing ────────────────────────────────────────────────────────────────
   const doLand = useCallback((playerIdx, pos, rollSum) => {
     const tile = TILES[pos];
+    let eff = { logs: [], money: [], modal: null, nextTurn: false, estates: null };
+
     setPlayers(prev => {
       const player = prev[playerIdx];
       const u = [...prev];
+      eff = { logs: [], money: [], modal: null, nextTurn: false, estates: null };
 
       switch (tile.type) {
         case TILE_TYPES.OPPORTUNITY: {
@@ -1212,15 +1215,15 @@ export default function App() {
           if (player.isAI) {
             if (card.cost && player.cash >= card.cost) {
               u[playerIdx] = { ...player, cash: Math.round(player.cash - card.cost), passive: player.passive + (card.passive || 0), assets: [...player.assets, { name: card.title, amount: card.passive }] };
-              addLog(`${player.name} ACQUIRED: ${card.title}`);
-              showMoney(playerIdx, -card.cost);
+              eff.logs.push(`${player.name} ACQUIRED: ${card.title}`);
+              eff.money.push({ idx: playerIdx, amt: -card.cost });
             } else if (card.cash) {
               u[playerIdx] = { ...player, cash: Math.round(player.cash + card.cash) };
-              addLog(`${player.name} GAIN: ${card.title} +₹${card.cash.toLocaleString()}`);
-              showMoney(playerIdx, card.cash);
+              eff.logs.push(`${player.name} GAIN: ${card.title} +₹${card.cash.toLocaleString()}`);
+              eff.money.push({ idx: playerIdx, amt: card.cash });
             }
-            setTimeout(() => nextTurn(), 600);
-          } else setActiveModal({ type: 'card', card, flavor: 'opportunity' });
+            eff.nextTurn = true;
+          } else eff.modal = { type: 'card', card, flavor: 'opportunity' };
           break;
         }
         case TILE_TYPES.THREAT: {
@@ -1229,22 +1232,28 @@ export default function App() {
             let cash = Math.round(player.cash + card.cash), liab = player.liability;
             if (cash < 0) { liab += Math.abs(cash); cash = 0; }
             u[playerIdx] = { ...player, cash, liability: liab };
-            addLog(`${player.name} LOSS: ${card.title} (₹${Math.abs(card.cash).toLocaleString()})`);
-            showMoney(playerIdx, card.cash);
-            setTimeout(() => nextTurn(), 600);
+            eff.logs.push(`${player.name} LOSS: ${card.title} (₹${Math.abs(card.cash).toLocaleString()})`);
+            eff.money.push({ idx: playerIdx, amt: card.cash });
+            eff.nextTurn = true;
           } else {
             // Human: DON'T apply cash here — processCard handles it on Acknowledge
-            addLog(`${player.name} BILL: ${card.title}`);
-            setActiveModal({ type: 'card', card, flavor: 'threat' });
+            eff.logs.push(`${player.name} BILL: ${card.title}`);
+            eff.modal = { type: 'card', card, flavor: 'threat' };
           }
           break;
         }
         case TILE_TYPES.DONATION:
-          if (player.isPatron) { addLog(`${player.name}: Charity tile visited.`); if (player.isAI) setTimeout(() => nextTurn(), 600); }
-          else if (player.isAI) {
-            if (player.cash >= 3000) { u[playerIdx] = { ...player, cash: player.cash - 3000, isPatron: true }; addLog(`${player.name} Patron active.`); showMoney(playerIdx, -3000); }
-            setTimeout(() => nextTurn(), 600);
-          } else setActiveModal({ type: 'donation' });
+          if (player.isPatron) {
+            eff.logs.push(`${player.name}: Charity tile visited.`);
+            if (player.isAI) eff.nextTurn = true;
+          } else if (player.isAI) {
+            if (player.cash >= 3000) {
+              u[playerIdx] = { ...player, cash: player.cash - 3000, isPatron: true };
+              eff.logs.push(`${player.name} Patron active.`);
+              eff.money.push({ idx: playerIdx, amt: -3000 });
+            }
+            eff.nextTurn = true;
+          } else eff.modal = { type: 'donation' };
           break;
         case TILE_TYPES.CAREER_SHIFT: {
           let bump = 0, msg = '';
@@ -1252,9 +1261,9 @@ export default function App() {
           else if (rollSum % 2 !== 0) { bump = -500; msg = 'DEMOTED! Your salary drops by ₹500/month from next payday.'; }
           else msg = 'Market conditions stable. No change to your salary.';
           u[playerIdx] = { ...player, salary: Math.max(500, player.salary + bump) };
-          addLog(`${player.name}: ${bump > 0 ? '+' : ''}₹${bump} salary`);
-          if (player.isAI) { setTimeout(() => nextTurn(), 600); }
-          else setActiveModal({ type: 'simple_info', title: 'Career', msg, Icon: Award, iconColor: '#3d5afe' });
+          eff.logs.push(`${player.name}: ${bump > 0 ? '+' : ''}₹${bump} salary`);
+          if (player.isAI) { eff.nextTurn = true; }
+          else eff.modal = { type: 'simple_info', title: 'Career', msg, Icon: Award, iconColor: '#3d5afe' };
           break;
         }
         case TILE_TYPES.HOSPITAL: {
@@ -1262,15 +1271,15 @@ export default function App() {
           let cash = player.cash - bill, liab = player.liability;
           if (cash < 0) { liab += Math.abs(cash); cash = 0; }
           u[playerIdx] = { ...player, cash, liability: liab };
-          addLog(`${player.name} MEDICAL: -₹${bill}`);
-          showMoney(playerIdx, -bill);
-          if (player.isAI) { setTimeout(() => nextTurn(), 600); }
-          else setActiveModal({
+          eff.logs.push(`${player.name} MEDICAL: -₹${bill}`);
+          eff.money.push({ idx: playerIdx, amt: -bill });
+          if (player.isAI) { eff.nextTurn = true; }
+          else eff.modal = {
             type: 'simple_info', title: 'Medical Bill',
             msg: `₹${bill.toLocaleString()} has been debited from your account as a hospital bill.${liab > player.liability ? ` ₹${(liab - player.liability).toLocaleString()} added to your debt.` : ''}`,
             Icon: Stethoscope, iconColor: D.red,
             amountLine: { label: 'Debited', value: `-₹${bill.toLocaleString()}`, color: D.red },
-          });
+          };
           break;
         }
         case TILE_TYPES.BLACK_SWAN: {
@@ -1284,15 +1293,15 @@ export default function App() {
             msg = `Market crash! Your passive income has been halved to ₹${Math.floor(player.passive * 0.5).toLocaleString()}/month.`;
             u[playerIdx] = { ...player, passive: Math.floor(player.passive * 0.5) };
           }
-          addLog(`${player.name} LIFE EVENT: ${isCrash ? '-40% cash' : 'passive halved'}`);
-          if (isCrash) showMoney(playerIdx, delta);
-          if (player.isAI) { setTimeout(() => nextTurn(), 600); }
-          else setActiveModal({
+          eff.logs.push(`${player.name} LIFE EVENT: ${isCrash ? '-40% cash' : 'passive halved'}`);
+          if (isCrash) eff.money.push({ idx: playerIdx, amt: delta });
+          if (player.isAI) { eff.nextTurn = true; }
+          else eff.modal = {
             type: 'simple_info', title: 'Life Event', msg, Icon: Zap, iconColor: '#e67e22',
             amountLine: isCrash
               ? { label: 'Seized', value: `-₹${Math.abs(delta).toLocaleString()}`, color: D.red }
               : { label: 'New Passive', value: `₹${Math.floor(player.passive * 0.5).toLocaleString()}/mo`, color: '#e67e22' },
-          });
+          };
           break;
         }
         case TILE_TYPES.ESTATE: {
@@ -1303,39 +1312,39 @@ export default function App() {
           const rent = getEstateRent(cityIdx, estState);
 
           if (ownerId === null) {
-            // Unowned — if player can afford to buy, offer choice; otherwise auto-debit bank rent
+            // Unowned
             if (player.isAI) {
               if (player.cash >= city.price) {
                 // AI buys
                 u[playerIdx] = { ...player, cash: player.cash - city.price };
-                setEstates(prev => ({ ...prev, [pos]: { ownerId: playerIdx, houses: 0, hasHotel: false } }));
-                addLog(`${player.name} BOUGHT ${city.name} for ₹${city.price.toLocaleString()}`);
-                showMoney(playerIdx, -city.price);
+                eff.estates = { pos, val: { ownerId: playerIdx, houses: 0, hasHotel: false } };
+                eff.logs.push(`${player.name} BOUGHT ${city.name} for ₹${city.price.toLocaleString()}`);
+                eff.money.push({ idx: playerIdx, amt: -city.price });
               } else {
                 // AI pays bank rent
                 let cash = player.cash - rent, liab = player.liability;
                 if (cash < 0) { liab += Math.abs(cash); cash = 0; }
                 u[playerIdx] = { ...player, cash, liability: liab };
-                addLog(`${player.name} paid bank rent ₹${rent.toLocaleString()} at ${city.name}`);
-                showMoney(playerIdx, -rent);
+                eff.logs.push(`${player.name} paid bank rent ₹${rent.toLocaleString()} at ${city.name}`);
+                eff.money.push({ idx: playerIdx, amt: -rent });
               }
-              setTimeout(() => nextTurn(), 600);
+              eff.nextTurn = true;
             } else if (player.cash >= city.price) {
               // Human can afford to buy — show choice modal
-              setActiveModal({ type: 'estate_unowned', pos, cityIdx, rent, canBuy: true });
+              eff.modal = { type: 'estate_unowned', pos, cityIdx, rent, canBuy: true };
             } else {
               // Human cannot afford — auto-debit rent silently and show acknowledgement
               let cash = player.cash - rent, liab = player.liability;
               if (cash < 0) { liab += Math.abs(cash); cash = 0; }
               u[playerIdx] = { ...player, cash, liability: liab };
-              addLog(`${player.name} paid bank rent ₹${rent.toLocaleString()} at ${city.name}`);
-              showMoney(playerIdx, -rent);
-              setActiveModal({
+              eff.logs.push(`${player.name} paid bank rent ₹${rent.toLocaleString()} at ${city.name}`);
+              eff.money.push({ idx: playerIdx, amt: -rent });
+              eff.modal = {
                 type: 'simple_info', title: city.name,
                 msg: `You can't afford to buy this property (₹${city.price.toLocaleString()}). Bank rent has been automatically debited.`,
                 Icon: Home, iconColor: ESTATE_TILE_COLOR.bg,
                 amountLine: { label: 'Bank Rent Paid', value: `-₹${rent.toLocaleString()}`, color: D.red },
-              });
+              };
             }
           } else if (ownerId === playerIdx) {
             // Own it — offer to build
@@ -1343,13 +1352,13 @@ export default function App() {
               const canBuildHouse = !estState.hasHotel && estState.houses < 4 && player.cash >= city.houseCost;
               if (canBuildHouse) {
                 u[playerIdx] = { ...player, cash: player.cash - city.houseCost };
-                setEstates(prev => ({ ...prev, [pos]: { ...prev[pos], houses: (prev[pos]?.houses || 0) + 1 } }));
-                addLog(`${player.name} built house on ${city.name}`);
-                showMoney(playerIdx, -city.houseCost);
+                eff.estates = { pos, val: { ...estState, houses: (estState.houses || 0) + 1 } };
+                eff.logs.push(`${player.name} built house on ${city.name}`);
+                eff.money.push({ idx: playerIdx, amt: -city.houseCost });
               }
-              setTimeout(() => nextTurn(), 600);
+              eff.nextTurn = true;
             } else {
-              setActiveModal({ type: 'estate_own', pos, cityIdx, estState });
+              eff.modal = { type: 'estate_own', pos, cityIdx, estState };
             }
           } else {
             // Owned by another player — pay rent
@@ -1360,24 +1369,31 @@ export default function App() {
             // Credit rent to owner
             const ownerIdx = ownerId;
             u[ownerIdx] = { ...u[ownerIdx], cash: u[ownerIdx].cash + rentDue };
-            addLog(`${player.name} paid ₹${rentDue.toLocaleString()} rent to ${u[ownerIdx].name} at ${city.name}`);
-            showMoney(playerIdx, -rentDue);
-            showMoney(ownerIdx, rentDue);
-            if (player.isAI) setTimeout(() => nextTurn(), 600);
-            else setActiveModal({
+
+            eff.logs.push(`${player.name} paid ₹${rentDue.toLocaleString()} rent to ${u[ownerIdx].name} at ${city.name}`);
+            eff.money.push({ idx: playerIdx, amt: -rentDue });
+            eff.money.push({ idx: ownerIdx, amt: rentDue });
+            if (player.isAI) eff.nextTurn = true;
+            else eff.modal = {
               type: 'simple_info', title: `${city.name}`,
               msg: `${u[ownerIdx].name} owns this property. You've paid rent.`,
               Icon: Home, iconColor: city.color,
               amountLine: { label: 'Rent Paid', value: `-₹${rentDue.toLocaleString()}`, color: D.red },
-            });
+            };
           }
           break;
         }
         default:
-          if (player.isAI) setTimeout(() => nextTurn(), 600);
+          if (player.isAI) eff.nextTurn = true;
       }
       return u;
     });
+
+    eff.logs.forEach(msg => addLog(msg));
+    eff.money.forEach(m => showMoney(m.idx, m.amt));
+    if (eff.estates) setEstates(prev => ({ ...prev, [eff.estates.pos]: eff.estates.val }));
+    if (eff.modal) setActiveModal(eff.modal);
+    if (eff.nextTurn) setTimeout(() => nextTurn(), 600);
   }, [nextTurn, showMoney, estates]);
 
   // ── Step animation ─────────────────────────────────────────────────────────
@@ -1390,19 +1406,25 @@ export default function App() {
     const step = () => {
       if (remaining <= 0) {
         // Apply all payday credits
+        let paydayEff = { logs: [], money: [] };
         setPlayers(prev => {
           let p = { ...prev[playerIdx] };
+          paydayEff = { logs: [], money: [] };
           passedCorners.forEach(() => {
             let net = Math.round((p.salary + p.passive) - (p.baseExpenses + Math.round(p.liability * 0.1) + Math.round(p.salary * 0.15)));
             if (p.isPatron) net = Math.round(net * 1.2);
             p.cash += net;
-            addLog(`${p.name} PAYDAY: +₹${net.toLocaleString()}`);
-            showMoney(playerIdx, net);
+            paydayEff.logs.push(`${p.name} PAYDAY: +₹${net.toLocaleString()}`);
+            paydayEff.money.push({ idx: playerIdx, amt: net });
           });
           const u = [...prev];
           u[playerIdx] = p;
           return u;
         });
+
+        paydayEff.logs.forEach(msg => addLog(msg));
+        paydayEff.money.forEach(m => showMoney(m.idx, m.amt));
+
         setIsAnimating(false);
         setTimeout(() => doLand(playerIdx, currentPos, rollSum), 120);
         return;
@@ -1461,35 +1483,43 @@ export default function App() {
 
   // ── Card / donation ────────────────────────────────────────────────────────
   const processCard = useCallback((idx, card) => {
+    let cardEff = { logs: [], money: [] };
     setPlayers(prev => {
       const p = prev[idx];
       const u = [...prev];
+      cardEff = { logs: [], money: [] };
       if (card.cost && p.cash >= card.cost) {
         u[idx] = { ...p, cash: Math.round(p.cash - card.cost), passive: p.passive + (card.passive || 0), assets: [...p.assets, { name: card.title, amount: card.passive }] };
-        addLog(`${p.name} ACQUIRED: ${card.title}`);
-        showMoney(idx, -card.cost);
+        cardEff.logs.push(`${p.name} ACQUIRED: ${card.title}`);
+        cardEff.money.push({ idx, amt: -card.cost });
       } else if (card.cash) {
         let cash = Math.round(p.cash + card.cash), liab = p.liability;
         if (cash < 0) { liab += Math.abs(cash); cash = 0; }
         u[idx] = { ...p, cash, liability: liab };
-        addLog(`${p.name} ${card.cash > 0 ? 'GAIN' : 'LOSS'}: ${card.title} (₹${Math.abs(card.cash).toLocaleString()})`);
-        showMoney(idx, card.cash);
+        cardEff.logs.push(`${p.name} ${card.cash > 0 ? 'GAIN' : 'LOSS'}: ${card.title} (₹${Math.abs(card.cash).toLocaleString()})`);
+        cardEff.money.push({ idx, amt: card.cash });
       }
       return u;
     });
+    cardEff.logs.forEach(msg => addLog(msg));
+    cardEff.money.forEach(m => showMoney(m.idx, m.amt));
     setActiveModal(null);
   }, [showMoney]);
 
   const applyDonation = useCallback((idx) => {
+    let donEff = false;
     setPlayers(prev => {
       const p = prev[idx];
       if (p.cash < 3000) return prev;
       const u = [...prev];
       u[idx] = { ...p, cash: p.cash - 3000, isPatron: true };
-      addLog(`${p.name} Patron status active.`);
+      donEff = true;
       return u;
     });
-    showMoney(idx, -3000);
+    if (donEff) {
+      addLog(`${playersRef.current[idx].name} Patron status active.`);
+      showMoney(idx, -3000);
+    }
     setActiveModal(null);
   }, [showMoney]);
 
