@@ -112,7 +112,7 @@ const BOARD_LAYOUT = [
 
 const BOARD_THEMES = [
   {
-    id: 'classic_monopoly', name: 'Classic Monopoly',
+    id: 'classic', name: 'Classic',
     board: '#ddd8c0', center: '#c8c2a8', boardBorder: '#a09070',
     tiles: {
       payday: { bg: '#00a896', text: '#fff' },
@@ -126,7 +126,7 @@ const BOARD_THEMES = [
     },
   },
   {
-    id: 'rento_style', name: 'Rento Game',
+    id: '`retro_style`', name: 'Retro Game',
     board: '#1a1a2e', center: '#16213e', boardBorder: '#0f3460',
     tiles: {
       payday: { bg: '#00d4aa', text: '#000' },
@@ -980,7 +980,7 @@ export default function App() {
   const [toasts, setToasts] = useState([]);
   // estates: { [tileIndex]: { ownerId: number|null, houses: 0-4, hasHotel: false } }
   const [estates, setEstates] = useState({});
-  const [themeId, setThemeId] = useState('rento_style');
+  const [themeId, setThemeId] = useState('`retro_style`');
   const [themeDropOpen, setThemeDropOpen] = useState(false);
 
   // Derive active theme colours
